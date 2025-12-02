@@ -1,4 +1,4 @@
-```
+```mermaid
 graph TD
     Input(User Input: question) --> GlobalState
     
@@ -24,7 +24,7 @@ graph TD
     StateFinal --> Output(Final Output: final_answer)
 ```
 
-```
+```mermaid
 graph TD
     Input[생성된 5개의 질문 리스트]
     
