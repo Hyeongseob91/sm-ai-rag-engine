@@ -43,6 +43,7 @@ class QueryRewriteNode(BaseNode):
             print(f"--- 생성된 쿼리: {result.queries} ---")
             return {"optimized_queries": result.queries}
 
+        # Fallback
         except Exception as e:
             print(f"Error in Query Rewrite Node: {e}")
             return {"optimized_queries": [state["question"]]}

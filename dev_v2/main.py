@@ -2,6 +2,41 @@
 RAG Server v2 - Entry Point
 
 DI(Dependency Injection) 패턴으로 구성된 RAG 파이프라인
+
+# dev_v2 RAG Architecture 구조
+  dev_v2/
+  ├── __init__.py                    # 패키지 초기화
+  ├── main.py                        # 엔트리포인트 + DI Container
+  │
+  ├── config/
+  │   ├── __init__.py
+  │   └── settings.py                # 설정 관리 (LLM, VectorStore, Reranker)
+  │
+  ├── schemas/
+  │   ├── __init__.py
+  │   ├── state.py                   # RAGState, 부분 스키마 (TypedDict)
+  │   └── models.py                  # Pydantic 모델 (RewriteResult)
+  │
+  ├── prompts/
+  │   ├── __init__.py
+  │   └── templates.py               # 프롬프트 템플릿 (Rewrite, Generator)
+  │
+  ├── services/
+  │   ├── __init__.py
+  │   ├── llm.py                     # LLMService 클래스
+  │   ├── vectorstore.py             # VectorStoreService 클래스 (Weaviate)
+  │   └── reranker.py                # RerankerService 클래스 (CrossEncoder)
+  │
+  ├── nodes/
+  │   ├── __init__.py
+  │   ├── base.py                    # BaseNode 추상 클래스
+  │   ├── query_rewrite.py           # QueryRewriteNode
+  │   ├── retriever.py               # RetrieverNode
+  │   └── generator.py               # GeneratorNode
+  │
+  └── graph/
+      ├── __init__.py
+      └── workflow.py                # RAGWorkflow (LangGraph)
 """
 from dotenv import load_dotenv
 
@@ -79,8 +114,7 @@ if __name__ == "__main__":
     load_dotenv()
 
     # 애플리케이션 생성 및 초기화
-    app = create_app()
-    app.initialize()
+    app = create_app().initialize()
 
     # 테스트 질문
     test_question = "RAG 성능 고도화의 개념은?"

@@ -22,12 +22,11 @@ class RerankerService:
             self._model = CrossEncoder(self.settings.reranker.model_name)
         return self._model
 
-    def rerank(
-        self,
-        query: str,
-        documents: List[str],
+    def rerank(self, 
+        query: str, 
+        documents: List[str], 
         top_k: int = None,
-    ) -> List[Tuple[str, float]]:
+        ) -> List[Tuple[str, float]]:
         """
         문서들을 Query와의 관련성으로 재순위화
 
@@ -65,4 +64,5 @@ class RerankerService:
     ) -> List[str]:
         """상위 문서 내용만 반환"""
         ranked = self.rerank(query, documents, top_k)
-        return [doc for doc, _ in ranked]
+
+        return ranked

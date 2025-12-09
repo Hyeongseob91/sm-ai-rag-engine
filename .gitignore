@@ -9,3 +9,6 @@ wheels/
 # Virtual environments
 .venv
 .env
+
+# database
+/dev_v1/my_weaviate_data

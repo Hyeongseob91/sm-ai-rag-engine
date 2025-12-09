@@ -47,13 +47,18 @@ class RetrieverNode(BaseNode):
 
         print(f"--- 1차 검색 결과: {len(all_results)}개 문서 ---")
 
-        # Reranking (원본 질문 기준)
+        # Reranking
         original_question = state["question"]
-        final_docs = self._reranker.get_top_documents(
+        ranked_results = self._reranker.get_top_documents(
             query=original_question,
             documents=all_results,
         )
+        print(f"--- Reranking 후: {len(ranked_results)}개 문서 선별 ---")
 
-        print(f"--- Reranking 후: {len(final_docs)}개 문서 선별 ---")
+        # Scores 확인
+        final_docs = []
+        for idx, (doc, score) in enumerate(ranked_results):
+            print(f"[{idx+1}등] Score: {score:.4f} | 내용: {doc[:30]}...")
+            final_docs.append(doc)
 
         return {"retrieved_docs": final_docs}

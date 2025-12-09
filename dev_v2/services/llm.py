@@ -18,6 +18,7 @@ class LLMService:
     def __init__(self, settings: Settings):
         self.settings = settings
 
+    # 1. LLM Invocation (Factory Method)
     def get_rewrite_llm(self) -> ChatOpenAI:
         """Query Rewrite용 LLM 인스턴스 반환"""
         return ChatOpenAI(
@@ -32,6 +33,7 @@ class LLMService:
             temperature=self.settings.llm.generator_temperature,
         )
 
+    # 2. Wrapping Method (Abstraction & Reusability)
     def invoke_with_structured_output(
         self,
         llm: ChatOpenAI,

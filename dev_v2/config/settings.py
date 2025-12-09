@@ -8,36 +8,40 @@ from typing import Optional
 
 @dataclass
 class LLMSettings:
-    """LLM 관련 설정"""
+    """LLM(API) Model Settings"""
+    # Query Rewirte
     rewrite_model: str = "gpt-4o-mini"
-    rewrite_temperature: float = 0
+    rewrite_temperature: float = 0.0
+    # Answer Generate
     generator_model: str = "gpt-4o"
-    generator_temperature: float = 0
+    generator_temperature: float = 0.0
 
 
 @dataclass
 class VectorStoreSettings:
-    """Vector Store 관련 설정"""
+    """VectorDB Settings"""
+    # Weaviate
     weaviate_version: str = "1.27.0"
     data_path: str = "./my_weaviate_data"
     collection_name: str = "AdvancedRAG_Chunk"
     embedding_model: str = "text-embedding-3-small"
-    bm25_b: float = 0.75
-    bm25_k1: float = 1.2
+    bm25_b: float = 0.75        # 문서 길이 정규화
+    bm25_k1: float = 1.2        # 단어 빈도 포화도
 
 
 @dataclass
 class RerankerSettings:
     """Reranker 관련 설정"""
     model_name: str = "BAAI/bge-reranker-v2-m3"
-    top_k: int = 5
+    top_k: int = 5              # Lost in the Middle 방지 개수
 
 
 @dataclass
 class RetrieverSettings:
     """Retriever 관련 설정"""
+    # Hybrid Search(Keyword + Semantic)
     hybrid_alpha: float = 0.5
-    initial_limit: int = 10
+    initial_limit: int = 30
 
 
 @dataclass
