@@ -14,4 +14,10 @@ dependencies = [
     "sentence-transformers>=5.1.2",
     "weaviate>=0.1.2",
     "weaviate-client>=4.0.0",
+    # Preprocessing dependencies
+    "pdfplumber>=0.10.0",
+    "python-docx>=1.1.0",
+    "openpyxl>=3.1.0",
+    "langchain-experimental>=0.3.0",
+    "reportlab>=4.4.5",
 ]
