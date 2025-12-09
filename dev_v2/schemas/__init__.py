@@ -1,5 +1,5 @@
 from .state import RAGState, QueryOutput, RetrievalOutput, GenerationOutput
-from .models import RewriteResult
+from .models import RewriteResult, RouteQuery
 
 __all__ = [
     "RAGState",
@@ -7,4 +7,5 @@ __all__ = [
     "RetrievalOutput",
     "GenerationOutput",
     "RewriteResult",
+    "RouteQuery",
 ]

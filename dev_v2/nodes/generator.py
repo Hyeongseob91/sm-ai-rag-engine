@@ -8,7 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from .base import BaseNode
 from ..schemas import RAGState
 from ..services import LLMService
-from ..prompts import GENERATOR_PROMPT_TEMPLATE
+from ..prompts import GENERATOR_HUMAN_PROMPT, GENERATOR_SYSTEM_PROMPT
 
 
 class GeneratorNode(BaseNode):
@@ -16,12 +16,16 @@ class GeneratorNode(BaseNode):
 
     def __init__(self, llm_service: LLMService):
         self._llm_service = llm_service
-        self._prompt = ChatPromptTemplate.from_template(GENERATOR_PROMPT_TEMPLATE)
+        self._prompt = ChatPromptTemplate.from_messages([
+            ("system", GENERATOR_SYSTEM_PROMPT),
+            ("human", GENERATOR_HUMAN_PROMPT)
+        ])
 
     @property
     def name(self) -> str:
         return "generator"
 
+    # Factory Method
     def _format_docs(self, docs: List[str]) -> str:
         """문서 리스트를 번호가 매겨진 텍스트로 변환"""
         formatted = []

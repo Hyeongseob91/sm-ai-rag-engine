@@ -1,48 +1,11 @@
 """
 RAG Server v2 - Entry Point
-
-DI(Dependency Injection) 패턴으로 구성된 RAG 파이프라인
-
-# dev_v2 RAG Architecture 구조
-  dev_v2/
-  ├── __init__.py                    # 패키지 초기화
-  ├── main.py                        # 엔트리포인트 + DI Container
-  │
-  ├── config/
-  │   ├── __init__.py
-  │   └── settings.py                # 설정 관리 (LLM, VectorStore, Reranker)
-  │
-  ├── schemas/
-  │   ├── __init__.py
-  │   ├── state.py                   # RAGState, 부분 스키마 (TypedDict)
-  │   └── models.py                  # Pydantic 모델 (RewriteResult)
-  │
-  ├── prompts/
-  │   ├── __init__.py
-  │   └── templates.py               # 프롬프트 템플릿 (Rewrite, Generator)
-  │
-  ├── services/
-  │   ├── __init__.py
-  │   ├── llm.py                     # LLMService 클래스
-  │   ├── vectorstore.py             # VectorStoreService 클래스 (Weaviate)
-  │   └── reranker.py                # RerankerService 클래스 (CrossEncoder)
-  │
-  ├── nodes/
-  │   ├── __init__.py
-  │   ├── base.py                    # BaseNode 추상 클래스
-  │   ├── query_rewrite.py           # QueryRewriteNode
-  │   ├── retriever.py               # RetrieverNode
-  │   └── generator.py               # GeneratorNode
-  │
-  └── graph/
-      ├── __init__.py
-      └── workflow.py                # RAGWorkflow (LangGraph)
 """
 from dotenv import load_dotenv
 
 from .config import Settings
 from .services import LLMService, VectorStoreService, RerankerService
-from .nodes import QueryRewriteNode, RetrieverNode, GeneratorNode
+from .nodes import QueryRewriteNode, RetrieverNode, GeneratorNode, SimpleGeneratorNode
 from .graph import RAGWorkflow
 
 
@@ -65,12 +28,15 @@ class RAGApplication:
             self._reranker_service,
         )
         self._generator_node = GeneratorNode(self._llm_service)
+        self._simple_generator_node = SimpleGeneratorNode(self._llm_service)
 
-        # 워크플로우 초기화 (노드 주입)
+        # 워크플로우 초기화 (노드 주입 + Router Pattern)
         self._workflow = RAGWorkflow(
+            self._llm_service,
             self._query_rewrite_node,
             self._retriever_node,
             self._generator_node,
+            self._simple_generator_node,
         )
 
     @property
