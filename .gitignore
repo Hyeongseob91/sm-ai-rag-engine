@@ -5,10 +5,12 @@ build/
 dist/
 wheels/
 *.egg-info
+.claude
 
 # Virtual environments
 .venv
 .env
+.pytest_cache
 
 # database
-/dev_v1/my_weaviate_data
+**my_weaviate_data

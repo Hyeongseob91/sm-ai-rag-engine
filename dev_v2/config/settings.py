@@ -22,7 +22,7 @@ class VectorStoreSettings:
     """VectorDB Settings"""
     # Weaviate
     weaviate_version: str = "1.27.0"
-    data_path: str = "./my_weaviate_data"
+    data_path: str = "./dev_v2/my_weaviate_data"
     collection_name: str = "AdvancedRAG_Chunk"
     embedding_model: str = "text-embedding-3-small"
     bm25_b: float = 0.75        # 문서 길이 정규화
@@ -45,12 +45,29 @@ class RetrieverSettings:
 
 
 @dataclass
+class PreprocessingSettings:
+    """전처리 관련 설정"""
+    # SemanticChunker
+    embedding_model: str = "text-embedding-3-small"
+    breakpoint_type: str = "percentile"
+    breakpoint_threshold: float = 95.0
+    min_chunk_size: int = 100
+    max_chunk_size: int = 2000
+    # TextNormalizer
+    remove_extra_whitespace: bool = True
+    remove_extra_newlines: bool = True
+    remove_special_chars: bool = False
+    min_line_length: int = 0
+
+
+@dataclass
 class Settings:
     """전체 설정 관리"""
     llm: LLMSettings = field(default_factory=LLMSettings)
     vectorstore: VectorStoreSettings = field(default_factory=VectorStoreSettings)
     reranker: RerankerSettings = field(default_factory=RerankerSettings)
     retriever: RetrieverSettings = field(default_factory=RetrieverSettings)
+    preprocessing: PreprocessingSettings = field(default_factory=PreprocessingSettings)
 
     def __post_init__(self):
         # 환경 변수에서 데이터 경로 오버라이드 가능
