@@ -170,13 +170,20 @@ dev_v2/
 ├── schemas/                    # 데이터 모델 정의
 │   ├── __init__.py
 │   ├── state.py                # RAGState (LangGraph 상태)
-│   └── models.py               # RouteQuery, RewriteResult (Pydantic)
+│   ├── models.py               # RouteQuery, RewriteResult (Pydantic)
+│   └── preprocessing.py        # RawDocument, Chunk, PreprocessingResult
 │
 ├── services/                   # 비즈니스 로직 서비스
 │   ├── __init__.py
 │   ├── llm.py                  # LLMService (OpenAI 호출)
 │   ├── vectorstore.py          # VectorStoreService (Weaviate)
-│   └── reranker.py             # RerankerService (CrossEncoder)
+│   ├── reranker.py             # RerankerService (CrossEncoder)
+│   └── preprocessing/          # 전처리 파이프라인
+│       ├── __init__.py
+│       ├── parsers.py          # UnifiedFileParser (PDF, DOCX, XLSX, TXT, JSON)
+│       ├── normalizer.py       # TextNormalizer (텍스트 정규화)
+│       ├── chunking.py         # ChunkingService (SemanticChunker)
+│       └── pipeline.py         # PreprocessingPipeline (통합 파이프라인)
 │
 ├── nodes/                      # LangGraph 노드들
 │   ├── __init__.py
@@ -233,11 +240,26 @@ class RetrieverSettings:
     initial_limit: int = 30
 
 @dataclass
+class PreprocessingSettings:
+    # SemanticChunker
+    embedding_model: str = "text-embedding-3-small"
+    breakpoint_type: str = "percentile"
+    breakpoint_threshold: float = 95.0
+    min_chunk_size: int = 100
+    max_chunk_size: int = 2000
+    # TextNormalizer
+    remove_extra_whitespace: bool = True
+    remove_extra_newlines: bool = True
+    remove_special_chars: bool = False
+    min_line_length: int = 0
+
+@dataclass
 class Settings:
     llm: LLMSettings
     vectorstore: VectorStoreSettings
     reranker: RerankerSettings
     retriever: RetrieverSettings
+    preprocessing: PreprocessingSettings
 ```
 
 ### 4.2 schemas/ - 데이터 모델
@@ -268,6 +290,59 @@ class RewriteResult(BaseModel):
     queries: List[str] = Field(
         description="최적화된 검색 쿼리 리스트 (3~5개)"
     )
+```
+
+**preprocessing.py - 전처리 데이터 모델**
+
+```python
+@dataclass
+class RawDocument:
+    """파서에서 추출된 원본 문서"""
+    content: str           # 추출된 전체 텍스트
+    source: str            # 파일 경로
+    file_type: str         # 파일 확장자 (pdf, docx, xlsx, txt, json)
+    file_name: str         # 파일 이름
+    metadata: Dict[str, Any]
+    pages: Optional[List[str]]      # 페이지별 텍스트 (PDF, DOCX)
+    sheets: Optional[Dict[str, str]] # 시트별 텍스트 (XLSX)
+
+@dataclass
+class Chunk:
+    """청킹된 텍스트 단위"""
+    content: str           # 청크 텍스트
+    chunk_id: str          # 고유 ID (UUID)
+    chunk_index: int       # 문서 내 순서
+    doc_id: str            # 원본 문서 ID
+    source: str            # 원본 파일 경로
+    file_name: str         # 파일 이름
+    file_type: str         # 파일 형식
+    metadata: Dict[str, Any]
+
+    @property
+    def char_count(self) -> int: ...
+    def to_dict(self) -> Dict[str, Any]: ...
+    def to_weaviate_object(self) -> Dict[str, Any]: ...
+
+class DocumentMetadata(BaseModel):
+    """문서 메타데이터 (Pydantic)"""
+    doc_id: str
+    source: str
+    file_name: str
+    file_type: str
+    file_size: int
+    created_at: datetime
+    page_count: Optional[int]   # PDF, DOCX
+    sheet_count: Optional[int]  # XLSX
+
+@dataclass
+class PreprocessingResult:
+    """전처리 결과"""
+    document: Optional[RawDocument]
+    chunks: List[Chunk]
+    metadata: Optional[DocumentMetadata]
+    stats: Dict[str, Any]
+    success: bool
+    error: Optional[str]
 ```
 
 ### 4.3 services/ - 비즈니스 로직
@@ -339,7 +414,197 @@ class RerankerService:
         """상위 k개 문서만 반환"""
 ```
 
-### 4.4 nodes/ - LangGraph 노드
+### 4.4 services/preprocessing/ - 전처리 파이프라인
+
+**parsers.py - 파일 파서**
+
+다양한 파일 형식을 파싱하여 RawDocument로 변환:
+
+```python
+class BaseParser(ABC):
+    """파서 추상 클래스"""
+    @property
+    @abstractmethod
+    def supported_extensions(self) -> List[str]: ...
+
+    @abstractmethod
+    def parse(self, file_path: str) -> RawDocument: ...
+
+class PDFParser(BaseParser):
+    """PDF 파서 (pdfplumber) - 텍스트 + 테이블 추출"""
+
+class DOCXParser(BaseParser):
+    """DOCX 파서 (python-docx) - 문단 + 테이블 추출"""
+
+class XLSXParser(BaseParser):
+    """XLSX 파서 (openpyxl) - 시트별 추출"""
+
+class TXTParser(BaseParser):
+    """TXT 파서 - 다중 인코딩 자동 감지 (UTF-8, CP949, EUC-KR)"""
+
+class JSONParser(BaseParser):
+    """JSON 파서 - 계층 구조 텍스트 변환"""
+
+class UnifiedFileParser:
+    """통합 파서 - 확장자 기반 자동 파서 선택"""
+    def parse(self, file_path: str) -> RawDocument: ...
+    def get_supported_extensions(self) -> List[str]: ...
+```
+
+**normalizer.py - 텍스트 정규화**
+
+```python
+class TextNormalizer:
+    """텍스트 정규화 클래스"""
+
+    def normalize(self, text: str) -> str:
+        """정규화 수행"""
+        # 1. 여러 줄바꿈을 2개로 통일
+        # 2. 여러 공백을 하나로
+        # 3. 특수 문자 제거 (선택적)
+        # 4. 짧은 줄 필터링 (선택적)
+
+    def normalize_document(self, doc: RawDocument) -> RawDocument:
+        """RawDocument 정규화"""
+```
+
+**chunking.py - SemanticChunker 기반 시맨틱 청킹**
+
+의미적 유사도를 기반으로 텍스트를 분할하여 문맥을 보존한 청크 생성:
+
+```python
+class ChunkingService:
+    """시맨틱 청킹 서비스"""
+
+    def __init__(self, settings: Settings):
+        # Lazy init: OpenAI 임베딩 + SemanticChunker
+
+    def chunk_text(
+        self, text: str, doc_id: str, source: str, file_name: str, file_type: str
+    ) -> List[Chunk]:
+        """텍스트 시맨틱 청킹"""
+        # 1. SemanticChunker로 분할
+        # 2. Chunk 객체 생성
+        # 3. Safety Guard (큰 청크 분할, 작은 청크 병합)
+
+    def chunk_document(self, doc: RawDocument) -> List[Chunk]:
+        """RawDocument 청킹"""
+
+    def get_chunk_stats(self, chunks: List[Chunk]) -> Dict[str, Any]:
+        """청킹 통계 반환"""
+```
+
+**SemanticChunker 동작 원리:**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     SemanticChunker 프로세스                         │
+├─────────────────────────────────────────────────────────────────────┤
+│  1. 문장 분리                                                        │
+│     "문장1. 문장2. 문장3. 문장4. 문장5."                              │
+│           ↓                                                          │
+│  2. 각 문장 임베딩 (text-embedding-3-small)                          │
+│     [vec1, vec2, vec3, vec4, vec5]                                  │
+│           ↓                                                          │
+│  3. 인접 문장 간 코사인 유사도 계산                                    │
+│     sim(1,2)=0.9, sim(2,3)=0.3, sim(3,4)=0.85, sim(4,5)=0.4         │
+│           ↓                                                          │
+│  4. breakpoint_threshold(percentile 95%) 기준 단절점 결정             │
+│     [문장1,문장2] | [문장3,문장4] | [문장5]                           │
+│           ↓                                                          │
+│  5. 청크 생성                                                        │
+│     Chunk 0: "문장1. 문장2."                                         │
+│     Chunk 1: "문장3. 문장4."                                         │
+│     Chunk 2: "문장5."                                                │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Safety Guard (청크 크기 보정):**
+
+| 상황 | 처리 방식 |
+|------|----------|
+| 청크 > max_chunk_size (2000자) | RecursiveCharacterTextSplitter로 재분할 |
+| 청크 < min_chunk_size (100자) | 인접 청크와 병합 |
+
+**pipeline.py - 통합 파이프라인**
+
+```python
+class PreprocessingPipeline:
+    """전처리 파이프라인 - 파일 → 청크 전체 처리"""
+
+    def __init__(self, settings: Settings):
+        self._parser = UnifiedFileParser()
+        self._normalizer = TextNormalizer(settings)
+        self._chunking_service = ChunkingService(settings)
+
+    def process_file(self, file_path: str) -> PreprocessingResult:
+        """단일 파일 전처리"""
+        # 1. 파싱 (파일 → RawDocument)
+        # 2. 정규화 (텍스트 정리)
+        # 3. 청킹 (SemanticChunker)
+        # 4. 메타데이터 보강
+        # 5. 통계 생성
+
+    def process_directory(
+        self, dir_path: str, recursive: bool = False
+    ) -> List[PreprocessingResult]:
+        """디렉토리 전체 처리"""
+```
+
+**전처리 데이터 플로우:**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Raw Files                                     │
+│             (PDF, DOCX, XLSX, TXT, JSON)                            │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    UnifiedFileParser                                 │
+│                                                                      │
+│   PDF  → pdfplumber (텍스트 + 테이블)                                │
+│   DOCX → python-docx (문단 + 테이블)                                 │
+│   XLSX → openpyxl (시트별 데이터)                                    │
+│   TXT  → 다중 인코딩 자동 감지                                       │
+│   JSON → 계층 구조 텍스트화                                          │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+                         RawDocument
+                    (content, metadata)
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                      TextNormalizer                                  │
+│                                                                      │
+│   - 여러 줄바꿈 → 2개로 통일                                         │
+│   - 여러 공백 → 하나로                                               │
+│   - 특수문자 제거 (선택적)                                            │
+│   - 짧은 줄 필터링 (선택적)                                          │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+                    Normalized RawDocument
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                     ChunkingService                                  │
+│                    (SemanticChunker)                                 │
+│                                                                      │
+│   - 의미적 단절점 기반 청킹                                          │
+│   - Safety Guard (min/max 크기 보정)                                 │
+│   - 메타데이터 부착                                                   │
+└─────────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    List[Chunk]                                       │
+│           (VectorStore 저장 준비 완료)                                │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 4.5 nodes/ - LangGraph 노드
 
 **base.py - BaseNode**
 
@@ -412,7 +677,7 @@ class SimpleGeneratorNode(BaseNode):
         return {"final_answer": answer}
 ```
 
-### 4.5 graph/ - 워크플로우
+### 4.6 graph/ - 워크플로우
 
 **workflow.py - RAGWorkflow**
 
@@ -465,7 +730,7 @@ class RAGWorkflow:
         """질문 실행 → 최종 답변"""
 ```
 
-### 4.6 prompts/ - 프롬프트 템플릿
+### 4.7 prompts/ - 프롬프트 템플릿
 
 **templates.py**
 
@@ -530,6 +795,44 @@ class RAGWorkflow:
 
     # 실행
     invoke(question: str) -> str
+```
+
+### 5.5 ChunkingService
+
+```python
+class ChunkingService:
+    # 청킹
+    chunk_text(text, doc_id, source, file_name, file_type) -> List[Chunk]
+    chunk_document(doc: RawDocument) -> List[Chunk]
+
+    # 통계
+    get_chunk_stats(chunks: List[Chunk]) -> Dict[str, Any]
+```
+
+### 5.6 PreprocessingPipeline
+
+```python
+class PreprocessingPipeline:
+    # 단일 파일 처리
+    process_file(file_path: str) -> PreprocessingResult
+
+    # 디렉토리 처리
+    process_directory(dir_path: str, recursive: bool = False) -> List[PreprocessingResult]
+
+    # 지원 확장자
+    get_supported_extensions() -> List[str]
+```
+
+### 5.7 UnifiedFileParser
+
+```python
+class UnifiedFileParser:
+    # 파싱
+    parse(file_path: str) -> RawDocument
+    parse_directory(dir_path: str, recursive: bool = False) -> List[RawDocument]
+
+    # 지원 확장자 (pdf, docx, xlsx, xls, txt, md, rst, json)
+    get_supported_extensions() -> List[str]
 ```
 
 ---
@@ -660,7 +963,7 @@ Settings (최상위)
 │
 ├── VectorStoreSettings
 │   ├── weaviate_version: "1.27.0"
-│   ├── data_path: "./my_weaviate_data"
+│   ├── data_path: "./dev_v2/my_weaviate_data"
 │   ├── collection_name: "AdvancedRAG_Chunk"
 │   ├── embedding_model: "text-embedding-3-small"
 │   ├── bm25_b: 0.75
@@ -670,9 +973,20 @@ Settings (최상위)
 │   ├── model_name: "BAAI/bge-reranker-v2-m3"
 │   └── top_k: 5
 │
-└── RetrieverSettings
-    ├── hybrid_alpha: 0.5
-    └── initial_limit: 30
+├── RetrieverSettings
+│   ├── hybrid_alpha: 0.5
+│   └── initial_limit: 30
+│
+└── PreprocessingSettings          # NEW
+    ├── embedding_model: "text-embedding-3-small"
+    ├── breakpoint_type: "percentile"
+    ├── breakpoint_threshold: 95.0
+    ├── min_chunk_size: 100
+    ├── max_chunk_size: 2000
+    ├── remove_extra_whitespace: true
+    ├── remove_extra_newlines: true
+    ├── remove_special_chars: false
+    └── min_line_length: 0
 ```
 
 ### 7.3 설정 오버라이드
@@ -869,6 +1183,13 @@ langgraph>=1.0.4
 weaviate-client>=4.0.0
 sentence-transformers>=5.1.2
 
+# 전처리 (SemanticChunker)
+langchain-experimental      # SemanticChunker
+langchain-text-splitters    # RecursiveCharacterTextSplitter (Safety Guard)
+pdfplumber                  # PDF 파싱
+python-docx                 # DOCX 파싱
+openpyxl                    # XLSX 파싱
+
 # 데이터 검증
 pydantic
 
@@ -883,6 +1204,7 @@ uv  # 패키지 관리자
 
 ---
 
-**작성일:** 2025-12-09
-**버전:** 1.0.0
+**작성일:** 2025-12-11
+**버전:** 1.1.0
+**변경사항:** SemanticChunker 기반 전처리 파이프라인 문서화
 **다음 단계:** Phase 3 - MVP (Docker, 보안, 베타 서비스)
